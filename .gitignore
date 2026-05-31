@@ -1,0 +1,10 @@
+# Python
+__pycache__/
+*.pyc
+*.egg-info/
+
+# Local run log (cron example writes here)
+monitor.log
+
+# NOTE: .monitor_seen.json is intentionally NOT ignored — the scheduled
+# workflow commits it so mention-dedupe persists across runs.
