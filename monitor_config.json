@@ -1,0 +1,33 @@
+{
+  "queries": [
+    "Trump company stock",
+    "Trump \"Truth Social\" stock",
+    "Trump praises company shares",
+    "Trump tariff company shares",
+    "Trump CEO comment stock"
+  ],
+  "watchlist": {
+    "Micron": "MU",
+    "Dell": "DELL",
+    "Intel": "INTC",
+    "Palantir": "PLTR",
+    "Nvidia": "NVDA",
+    "Apple": "AAPL",
+    "Boeing": "BA",
+    "Oracle": "ORCL",
+    "Tesla": "TSLA",
+    "Eli Lilly": "LLY",
+    "Pfizer": "PFE",
+    "Trump Media": "DJT"
+  },
+  "lookback_days": 2,
+  "max_items": 50,
+  "batch_size": 10,
+  "fetch_article_body": false,
+  "enrich_prices": true,
+  "model": "claude-opus-4-8",
+  "effort": null,
+  "thinking": true,
+  "out_dir": "alerts",
+  "seen_store": ".monitor_seen.json"
+}

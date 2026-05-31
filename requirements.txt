@@ -1,0 +1,10 @@
+# Optional dependencies for trump_monitor.py.
+# The core sweep (Google News RSS fetch -> heuristic analysis -> Markdown alerts)
+# runs on the Python standard library alone. These extras unlock the better paths:
+
+# High-quality LLM analysis (exact quotes, tone, materiality, confidence).
+# Requires ANTHROPIC_API_KEY in the environment.
+anthropic>=0.49.0
+
+# Live price enrichment on alerts (current price + % change).
+yfinance>=0.2.40
