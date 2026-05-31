@@ -21,6 +21,11 @@ on:
 permissions:
   contents: write
 
+# Opt the bundled actions (checkout, setup-python) onto Node.js 24 now, so the
+# "Node.js 20 actions are deprecated" runner warning doesn't appear.
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
+
 concurrency:
   group: trump-stock-monitor
   cancel-in-progress: false
