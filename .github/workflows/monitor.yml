@@ -21,11 +21,6 @@ on:
 permissions:
   contents: write
 
-# Opt the bundled actions (checkout, setup-python) onto Node.js 24 now, so the
-# "Node.js 20 actions are deprecated" runner warning doesn't appear.
-env:
-  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
-
 concurrency:
   group: trump-stock-monitor
   cancel-in-progress: false
@@ -34,9 +29,9 @@ jobs:
   sweep:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v6
         with:
           python-version: "3.11"
 
