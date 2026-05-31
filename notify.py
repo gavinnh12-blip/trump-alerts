@@ -165,3 +165,46 @@ def test_notify() -> int:
         return 0
     print("Configured, but all sends failed — check the warnings above.", file=sys.stderr)
     return 2
+
+
+def notify_failure(run_url: str) -> int:
+    """Tell every configured channel that a monitor run failed. Best-effort.
+
+    Invoked by the workflow's `if: failure()` step so a broken sweep never fails
+    silently. Never raises — a notification problem must not mask the real error.
+    """
+    title = "⚠️ Trump monitor run FAILED"
+    body = (
+        "A scheduled sweep did not complete. Open the run log to see why:\n"
+        f"{run_url}"
+    )
+    if not configured_channels():
+        print("[notify] run failed but no channels configured; nothing to send")
+        return 0
+    sent: list[str] = []
+    for name, env, fn in _CHANNELS:
+        if not os.getenv(env):
+            continue
+        try:
+            fn(title, body)
+            sent.append(name)
+        except Exception as exc:  # noqa: BLE001
+            print(f"  [warn] {name} failure-alert failed: {exc}", file=sys.stderr)
+    print(f"[notify] failure alert sent to: {', '.join(sent) or '(none succeeded)'}")
+    return 0
+
+
+def main(argv: list[str] | None = None) -> int:
+    import argparse
+    p = argparse.ArgumentParser(description="Notification helper for the monitor.")
+    g = p.add_mutually_exclusive_group()
+    g.add_argument("--test", action="store_true", help="send a sample alert to configured channels")
+    g.add_argument("--failure", metavar="RUN_URL", help="send a 'run failed' alert with this link")
+    args = p.parse_args(argv)
+    if args.failure:
+        return notify_failure(args.failure)
+    return test_notify()  # default / --test
+
+
+if __name__ == "__main__":
+    sys.exit(main())
