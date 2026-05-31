@@ -10,7 +10,12 @@ name: trump-stock-monitor
 on:
   schedule:
     - cron: "0 */3 * * *"   # every 3 hours (UTC)
-  workflow_dispatch: {}      # allow manual runs from the Actions tab
+  workflow_dispatch:         # "Run workflow" button in the Actions tab
+    inputs:
+      lookback_days:
+        description: "Days back to scan (manual runs only)"
+        required: false
+        default: "2"
 
 # Allow the job to commit new alerts back to the branch.
 permissions:
@@ -36,7 +41,14 @@ jobs:
       - name: Run monitor
         env:
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
-        run: python trump_monitor.py
+          LOOKBACK_DAYS: ${{ github.event.inputs.lookback_days }}
+        run: |
+          # Scheduled runs use the config default; manual runs honor the input box.
+          if [ -n "$LOOKBACK_DAYS" ]; then
+            python trump_monitor.py --lookback-days "$LOOKBACK_DAYS"
+          else
+            python trump_monitor.py
+          fi
 
       - name: Commit new alerts
         run: |

@@ -66,6 +66,21 @@ Each run is saved under [`alerts/`](./alerts/) as a dated Markdown file.
 [`alerts/INDEX.md`](./alerts/) + persist the dedupe store. It's idempotent per day
 and dedupes mentions across runs and sources, so most sweeps produce few or zero new alerts.
 
+### Turn it on
+
+**1. Try it now — zero setup.** On GitHub: **Actions** tab → **trump-stock-monitor** →
+**Run workflow**. It runs immediately in free heuristic mode and commits any alerts it finds.
+
+**2. Make it recurring.** Merge this branch into your default branch (`main`). The
+every-3-hours sweep then runs on its own — GitHub only runs scheduled workflows from the
+default branch, so nothing recurring happens until it's merged.
+
+**3. Upgrade the analysis (optional).** Settings → **Secrets and variables → Actions** →
+**New repository secret** → name it `ANTHROPIC_API_KEY`. With it, sweeps use Claude
+(`claude-opus-4-8`); without it they still run, just with lighter heuristic analysis.
+
+That's the whole setup — everything below is detail.
+
 ### Analysis engine (graceful degradation)
 
 - **With `ANTHROPIC_API_KEY` set** → Claude (`claude-opus-4-8` by default) evaluates each
@@ -79,7 +94,7 @@ and dedupes mentions across runs and sources, so most sweeps produce few or zero
 The core sweep needs only the **Python standard library**; `anthropic` and `yfinance`
 ([`requirements.txt`](./requirements.txt)) are optional extras.
 
-### Run it
+### Run it locally
 
 ```bash
 python trump_monitor.py                 # one sweep
@@ -92,13 +107,11 @@ Config lives in [`monitor_config.json`](./monitor_config.json) (watchlist, queri
 model, effort, batch size). Most knobs also accept env overrides (`MONITOR_MODEL`,
 `MONITOR_EFFORT`, `MONITOR_LOOKBACK_DAYS`, …).
 
-### Schedule it
+### Customize the schedule
 
-- **GitHub Actions (recommended):** [`.github/workflows/monitor.yml`](./.github/workflows/monitor.yml)
-  runs every 3 hours and commits new alerts back to the repo. Add an `ANTHROPIC_API_KEY`
-  repo secret to enable LLM analysis (it falls back to heuristic mode without one); tune the
-  `cron` to taste. Also runnable on demand from the Actions tab.
-- **cron (local/server):**
+- **Cadence:** edit the `cron` in
+  [`.github/workflows/monitor.yml`](./.github/workflows/monitor.yml) (default: every 3 hours).
+- **Run on your own server instead** (cron):
   ```cron
   0 */3 * * *  cd /path/to/trump-alerts && /usr/bin/python3 trump_monitor.py >> monitor.log 2>&1
   ```
