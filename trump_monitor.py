@@ -647,6 +647,15 @@ def run_sweep(cfg: dict[str, Any], dry_run: bool) -> int:
         print(f"[monitor] wrote {len(new_alerts)} alert(s) -> {path}")
         for a in new_alerts:
             seen["alerts"].add(alert_key(a))
+        try:
+            import notify
+            sent = notify.notify(new_alerts)
+            if sent:
+                print(f"[monitor] notified: {', '.join(sent)}")
+            elif notify.configured_channels():
+                print("[monitor] notification channels configured but all sends failed")
+        except Exception as exc:  # notifications must never break the sweep
+            print(f"[monitor] notify step failed: {exc}", file=sys.stderr)
 
     for it in fresh:
         seen["items"].add(it["id"])
@@ -700,6 +709,8 @@ def main() -> int:
     p.add_argument("--out-dir", help="override output directory")
     p.add_argument("--dry-run", action="store_true", help="analyze and print; write nothing")
     p.add_argument("--self-test", action="store_true", help="offline pipeline check")
+    p.add_argument("--test-notify", action="store_true",
+                   help="send a sample alert to configured notification channels")
     args = p.parse_args()
 
     cfg = load_config(args.config)
@@ -712,6 +723,9 @@ def main() -> int:
 
     if args.self_test:
         return self_test(cfg)
+    if args.test_notify:
+        import notify
+        return notify.test_notify()
     return run_sweep(cfg, dry_run=args.dry_run)
 
 

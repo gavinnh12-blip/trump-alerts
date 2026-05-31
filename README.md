@@ -81,6 +81,29 @@ default branch, so nothing recurring happens until it's merged.
 
 That's the whole setup — everything below is detail.
 
+### Phone & chat alerts (optional)
+
+By default, alerts are written to the [`alerts/`](./alerts/) folder. To **also** get pinged
+on your phone or in a chat app the moment a new alert fires, add **one repo secret** for the
+channel you use (Settings → Secrets and variables → Actions → New repository secret). Set any
+combination; unset channels are skipped.
+
+| You want… | Add secret(s) | How to get the value |
+|---|---|---|
+| **📱 Phone push** (easiest, no account) | `NTFY_TOPIC` | Install the **ntfy** app (iOS/Android), pick any hard-to-guess topic name (e.g. `trump-alerts-7h3k9`), **Subscribe** to it in the app, then use that same name as the secret. |
+| **💬 Telegram** (phone + chat) | `TELEGRAM_BOT_TOKEN` + `TELEGRAM_CHAT_ID` | Message **@BotFather** → `/newbot` → it gives you the token. Then message your new bot once, open `https://api.telegram.org/bot<TOKEN>/getUpdates`, and copy the `chat.id`. |
+| **💬 Slack** | `SLACK_WEBHOOK_URL` | Slack → create an **Incoming Webhook** for a channel; paste the URL. |
+| **💬 Discord** | `DISCORD_WEBHOOK_URL` | Channel → **Edit → Integrations → Webhooks → New Webhook → Copy URL**. |
+
+**Test it without waiting for real news** (works locally or from the Actions "Run workflow" button):
+
+```bash
+NTFY_TOPIC=trump-alerts-7h3k9 python trump_monitor.py --test-notify
+```
+
+It prints the exact message it would send and delivers a sample alert to every configured
+channel. Notifications are best-effort — a channel failing never blocks the sweep or the others.
+
 ### Analysis engine (graceful degradation)
 
 - **With `ANTHROPIC_API_KEY` set** → Claude (`claude-opus-4-8` by default) evaluates each
@@ -100,6 +123,7 @@ The core sweep needs only the **Python standard library**; `anthropic` and `yfin
 python trump_monitor.py                 # one sweep
 python trump_monitor.py --self-test     # offline pipeline check (no network/key)
 python trump_monitor.py --dry-run       # analyze + print, write nothing
+python trump_monitor.py --test-notify   # send a sample alert to configured channels
 python trump_monitor.py --lookback-days 3 --limit 60
 ```
 
