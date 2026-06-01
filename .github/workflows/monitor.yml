@@ -16,6 +16,11 @@ on:
         description: "Days back to scan (manual runs only)"
         required: false
         default: "2"
+      send_test:
+        description: "Send a TEST notification instead of running a real sweep"
+        required: false
+        type: boolean
+        default: false
 
 # Allow the job to commit new alerts back to the branch.
 permissions:
@@ -50,9 +55,14 @@ jobs:
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
           SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
           DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
+          SEND_TEST: ${{ github.event.inputs.send_test }}
         run: |
+          # send_test=true -> fire a sample notification and stop (proves the
+          # channels work without waiting for real news).
+          if [ "$SEND_TEST" = "true" ]; then
+            python trump_monitor.py --test-notify
           # Scheduled runs use the config default; manual runs honor the input box.
-          if [ -n "$LOOKBACK_DAYS" ]; then
+          elif [ -n "$LOOKBACK_DAYS" ]; then
             python trump_monitor.py --lookback-days "$LOOKBACK_DAYS"
           else
             python trump_monitor.py
