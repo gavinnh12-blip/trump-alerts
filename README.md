@@ -117,6 +117,14 @@ channel. Notifications are best-effort — a channel failing never blocks the sw
 The core sweep needs only the **Python standard library**; `anthropic` and `yfinance`
 ([`requirements.txt`](./requirements.txt)) are optional extras.
 
+### Notifications
+
+Alert messages include the **date Trump made the statement** (`said YYYY-MM-DD`). On top of
+new-alert pings and the run-failure alert, a **daily heartbeat** ("monitor alive, N alerts
+today") fires once a day (13:00 UTC) so silence never feels like a broken monitor. Delivery
+is resilient — transient blips (timeouts, 429, 5xx) are retried with backoff, and heartbeat
+sends never fail the run.
+
 ### Run it locally
 
 ```bash
