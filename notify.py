@@ -18,21 +18,44 @@ from __future__ import annotations
 import json
 import os
 import sys
+import time
 import urllib.request
 from typing import Any
 
 PRIORITY_EMOJI = {"HIGH": "🔴", "MEDIUM": "🟡", "LOW": "🟢"}
 _TIMEOUT = 15
+_RETRIES = 3            # transient blips (timeouts, 5xx, 429) self-heal
+_BACKOFF = 1.5          # seconds, doubled each retry
 # Discord/ntfy sit behind Cloudflare, which blocks urllib's default
 # "Python-urllib/x.y" User-Agent with a 403. Send a descriptive UA instead.
 _USER_AGENT = "Mozilla/5.0 (compatible; trump-alerts-monitor/1.0; +https://github.com/gavinnh12-blip/trump-alerts)"
 
 
+def _retryable(exc: Exception) -> bool:
+    """True for transient failures worth retrying (timeouts, 429, 5xx, conn drops)."""
+    import urllib.error
+    if isinstance(exc, urllib.error.HTTPError):
+        return exc.code == 429 or 500 <= exc.code < 600
+    # URLError (DNS/conn reset), socket timeout, etc. — transient.
+    return isinstance(exc, (urllib.error.URLError, TimeoutError, OSError))
+
+
 def _post(url: str, data: bytes, headers: dict[str, str]) -> None:
     headers = {"User-Agent": _USER_AGENT, **headers}  # caller may override UA
-    req = urllib.request.Request(url, data=data, headers=headers, method="POST")
-    with urllib.request.urlopen(req, timeout=_TIMEOUT) as resp:
-        resp.read()
+    last: Exception | None = None
+    for attempt in range(_RETRIES):
+        try:
+            req = urllib.request.Request(url, data=data, headers=headers, method="POST")
+            with urllib.request.urlopen(req, timeout=_TIMEOUT) as resp:
+                resp.read()
+            return
+        except Exception as exc:  # noqa: BLE001
+            last = exc
+            if attempt == _RETRIES - 1 or not _retryable(exc):
+                raise
+            time.sleep(_BACKOFF * (2 ** attempt))
+    if last:  # unreachable, but keeps type-checkers happy
+        raise last
 
 
 def format_summary(alerts: list[dict[str, Any]], max_lines: int = 6) -> tuple[str, str]:
@@ -50,7 +73,8 @@ def format_summary(alerts: list[dict[str, Any]], max_lines: int = 6) -> tuple[st
             snippet = snippet[:87] + "…"
         conf = a.get("confidence", 0)
         price = f" · {a['price_note']}" if a.get("price_note") else ""
-        lines.append(f"{emoji} {company} ({ticker}) — {snippet} · conf {conf}{price}")
+        when = f" · said {a['date']}" if a.get("date") else ""
+        lines.append(f"{emoji} {company} ({ticker}) — {snippet} · conf {conf}{when}{price}")
         url = a.get("source_url")
         if url:
             lines.append(f"   {url}")
@@ -148,7 +172,7 @@ def test_notify() -> int:
     sample = [{
         "company": "Micron", "ticker": "MU", "exact_quote": "Micron is great",
         "priority": "HIGH", "confidence": 95, "why": "praised at a rally",
-        "price_note": "$971.00 (+2.1% vs prev close)",
+        "date": "2026-05-22", "price_note": "$971.00 (+2.1% vs prev close)",
         "source_url": "https://example.com/micron",
     }]
     title, body = format_summary(sample)
@@ -198,15 +222,59 @@ def notify_failure(run_url: str) -> int:
     return 0
 
 
+def _count_alerts_today(out_dir: str = "alerts") -> int:
+    """Count alert blocks written to today's auto file (best-effort, 0 on any issue)."""
+    import datetime
+    path = os.path.join(out_dir, f"{datetime.date.today().isoformat()}-auto.md")
+    try:
+        with open(path, encoding="utf-8") as f:
+            return f.read().count("STOCK MENTION ALERT")
+    except Exception:
+        return 0
+
+
+def heartbeat(out_dir: str = "alerts") -> int:
+    """Send a daily 'still alive' note so silence never feels like a broken monitor.
+
+    Best-effort and never fatal — a heartbeat hiccup must not fail the workflow.
+    """
+    import datetime
+    n = _count_alerts_today(out_dir)
+    today = datetime.date.today().isoformat()
+    title = "✅ Trump monitor — daily check-in"
+    body = (
+        f"Monitor is running. {n} alert(s) so far today ({today}).\n"
+        "No news means no message until Trump names a public company."
+    )
+    if not configured_channels():
+        print("[notify] heartbeat: no channels configured; nothing to send")
+        return 0
+    sent: list[str] = []
+    for name, env, fn in _CHANNELS:
+        if not os.getenv(env):
+            continue
+        try:
+            fn(title, body)
+            sent.append(name)
+        except Exception as exc:  # noqa: BLE001 — heartbeat must never break a run
+            print(f"  [warn] {name} heartbeat failed: {exc}", file=sys.stderr)
+    print(f"[notify] heartbeat sent to: {', '.join(sent) or '(none succeeded)'}")
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     import argparse
     p = argparse.ArgumentParser(description="Notification helper for the monitor.")
     g = p.add_mutually_exclusive_group()
     g.add_argument("--test", action="store_true", help="send a sample alert to configured channels")
     g.add_argument("--failure", metavar="RUN_URL", help="send a 'run failed' alert with this link")
+    g.add_argument("--heartbeat", action="store_true", help="send a daily 'monitor alive' check-in")
+    p.add_argument("--out-dir", default="alerts", help="alerts dir (for --heartbeat counting)")
     args = p.parse_args(argv)
     if args.failure:
         return notify_failure(args.failure)
+    if args.heartbeat:
+        return heartbeat(args.out_dir)
     return test_notify()  # default / --test
 
 

@@ -9,7 +9,8 @@ name: trump-stock-monitor
 
 on:
   schedule:
-    - cron: "0 */3 * * *"   # every 3 hours (UTC)
+    - cron: "0 */3 * * *"   # every 3 hours (UTC) — the news sweep
+    - cron: "0 13 * * *"    # once daily 13:00 UTC — the "still alive" heartbeat
   workflow_dispatch:         # "Run workflow" button in the Actions tab
     inputs:
       lookback_days:
@@ -18,6 +19,11 @@ on:
         default: "2"
       send_test:
         description: "Send a TEST notification instead of running a real sweep"
+        required: false
+        type: boolean
+        default: false
+      send_heartbeat:
+        description: "Send a daily 'monitor alive' check-in instead of a sweep"
         required: false
         type: boolean
         default: false
@@ -56,15 +62,21 @@ jobs:
           SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
           DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
           SEND_TEST: ${{ github.event.inputs.send_test }}
+          SEND_HEARTBEAT: ${{ github.event.inputs.send_heartbeat }}
+          # True on the daily 13:00 UTC schedule (heartbeat), empty on the 3-hourly sweep.
+          IS_HEARTBEAT_CRON: ${{ github.event.schedule == '0 13 * * *' }}
         run: |
-          # send_test=true -> fire a sample notification and stop (proves the
-          # channels work without waiting for real news).
-          if [ "$SEND_TEST" = "true" ]; then
+          if [ "$SEND_HEARTBEAT" = "true" ] || [ "$IS_HEARTBEAT_CRON" = "true" ]; then
+            # Daily "still alive" check-in — never fails the run.
+            python notify.py --heartbeat || true
+          elif [ "$SEND_TEST" = "true" ]; then
+            # Fire a sample notification and stop (proves channels work, no news needed).
             python trump_monitor.py --test-notify
-          # Scheduled runs use the config default; manual runs honor the input box.
           elif [ -n "$LOOKBACK_DAYS" ]; then
+            # Manual run honoring the input box.
             python trump_monitor.py --lookback-days "$LOOKBACK_DAYS"
           else
+            # Normal scheduled sweep.
             python trump_monitor.py
           fi
 
