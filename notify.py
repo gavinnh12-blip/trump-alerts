@@ -23,9 +23,13 @@ from typing import Any
 
 PRIORITY_EMOJI = {"HIGH": "🔴", "MEDIUM": "🟡", "LOW": "🟢"}
 _TIMEOUT = 15
+# Discord/ntfy sit behind Cloudflare, which blocks urllib's default
+# "Python-urllib/x.y" User-Agent with a 403. Send a descriptive UA instead.
+_USER_AGENT = "Mozilla/5.0 (compatible; trump-alerts-monitor/1.0; +https://github.com/gavinnh12-blip/trump-alerts)"
 
 
 def _post(url: str, data: bytes, headers: dict[str, str]) -> None:
+    headers = {"User-Agent": _USER_AGENT, **headers}  # caller may override UA
     req = urllib.request.Request(url, data=data, headers=headers, method="POST")
     with urllib.request.urlopen(req, timeout=_TIMEOUT) as resp:
         resp.read()
