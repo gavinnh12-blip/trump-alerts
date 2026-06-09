@@ -23,6 +23,12 @@ import urllib.request
 from typing import Any
 
 PRIORITY_EMOJI = {"HIGH": "🔴", "MEDIUM": "🟡", "LOW": "🟢"}
+STATEMENT_TAG = {
+    "endorsement": "👍 ENDORSEMENT",
+    "criticism": "👎 CRITICISM",
+    "policy": "📜 POLICY",
+    "mention": "💬 mention",
+}
 _TIMEOUT = 15
 _RETRIES = 3            # transient blips (timeouts, 5xx, 429) self-heal
 _BACKOFF = 1.5          # seconds, doubled each retry
@@ -67,14 +73,19 @@ def format_summary(alerts: list[dict[str, Any]], max_lines: int = 6) -> tuple[st
         emoji = PRIORITY_EMOJI.get(a.get("priority", "LOW"), "🟢")
         ticker = a.get("ticker") or "—"
         company = a.get("company", "Unknown")
+        tag = STATEMENT_TAG.get(a.get("statement_type", "mention"), "💬 mention")
+        # Always show substance: verbatim quote if present, else key_info, else why.
         quote = a.get("exact_quote")
-        snippet = f'"{quote}"' if quote else (a.get("why") or "").strip()
-        if len(snippet) > 90:
-            snippet = snippet[:87] + "…"
+        if quote:
+            snippet = f'"{quote}"'
+        else:
+            snippet = (a.get("key_info") or a.get("why") or "").strip()
+        if len(snippet) > 110:
+            snippet = snippet[:107] + "…"
         conf = a.get("confidence", 0)
         price = f" · {a['price_note']}" if a.get("price_note") else ""
         when = f" · said {a['date']}" if a.get("date") else ""
-        lines.append(f"{emoji} {company} ({ticker}) — {snippet} · conf {conf}{when}{price}")
+        lines.append(f"{emoji} {tag} — {company} ({ticker}): {snippet} · conf {conf}{when}{price}")
         url = a.get("source_url")
         if url:
             lines.append(f"   {url}")
@@ -171,6 +182,8 @@ def test_notify() -> int:
     """Send a sample alert to all configured channels and report what fired."""
     sample = [{
         "company": "Micron", "ticker": "MU", "exact_quote": "Micron is great",
+        "statement_type": "endorsement", "source_type": "rally",
+        "key_info": "Trump praised Micron at a rally as US chip manufacturing ramps up.",
         "priority": "HIGH", "confidence": 95, "why": "praised at a rally",
         "date": "2026-05-22", "price_note": "$971.00 (+2.1% vs prev close)",
         "source_url": "https://example.com/micron",

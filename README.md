@@ -104,15 +104,27 @@ NTFY_TOPIC=trump-alerts-7h3k9 python trump_monitor.py --test-notify
 It prints the exact message it would send and delivers a sample alert to every configured
 channel. Notifications are best-effort — a channel failing never blocks the sweep or the others.
 
+### What gets flagged (endorsement-focused)
+
+The monitor prioritizes **direct, opinionated statements** Trump makes about a public
+company — praise/touting/"go buy" **endorsements** first, plus attacks (criticism) and
+deals/policy that name a company — said in a **speech, rally, interview, or on Truth
+Social**. Passing mentions with no opinion are skipped. Each alert is tagged with its
+**statement type** (👍 endorsement / 👎 criticism / 📜 policy / 💬 mention) and **where** it
+was said, and **always carries substance**: Trump's verbatim quote when the source contains
+one, otherwise a `key_info` summary of what he said and why it matters (quotes are never
+fabricated). Endorsements/criticism sort to the top.
+
 ### Analysis engine (graceful degradation)
 
 - **With `ANTHROPIC_API_KEY` set** → Claude (`claude-opus-4-8` by default) evaluates each
-  candidate and returns structured alerts (exact quote *only when present in the source*,
-  tone, priority, confidence, materiality, beneficiaries/harmed). Uses the official
-  `anthropic` SDK with `output_config.format` structured outputs, prompt caching on the
-  (stable) system instructions, and adaptive thinking.
-- **Without a key** → a heuristic candidate mode (watchlist keyword match) still runs for
-  free; it flags candidates at lower confidence and can't extract quotes.
+  candidate and returns structured alerts (statement type, source, exact quote *only when
+  present in the source* + always-present key_info, tone, priority, confidence, materiality,
+  beneficiaries/harmed). Uses the official `anthropic` SDK with `output_config.format`
+  structured outputs, prompt caching on the (stable) system instructions, and adaptive thinking.
+- **Without a key** → a heuristic mode (watchlist keyword match with endorsement/criticism
+  detection) still runs for free; lower confidence, no verbatim quotes, `key_info` from the
+  headline.
 
 The core sweep needs only the **Python standard library**; `anthropic` and `yfinance`
 ([`requirements.txt`](./requirements.txt)) are optional extras.
