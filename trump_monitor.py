@@ -49,13 +49,16 @@ USER_AGENT = "Mozilla/5.0 (compatible; trump-alerts-monitor/1.0)"
 
 DEFAULT_CONFIG: dict[str, Any] = {
     # Search queries run against Google News RSS. Kept broad; the analyzer is
-    # responsible for filtering down to genuine, specific company mentions.
+    # responsible for filtering down to genuine endorsement-type mentions.
     "queries": [
-        'Trump company stock',
-        'Trump "Truth Social" stock',
-        'Trump praises company shares',
+        'Trump praises company stock',
+        'Trump touts company shares',
+        'Trump "Truth Social" company stock',
+        'Trump endorses company',
+        'Trump "go buy" OR "great company" stock',
+        'Trump rally company shares',
         'Trump tariff company shares',
-        'Trump CEO comment stock',
+        'Trump CEO praise stock',
     ],
     # Watchlist: name -> ticker. Used by the heuristic fallback to detect/label
     # mentions, and appended to the search queries ("Trump <company>").
@@ -256,33 +259,46 @@ def alert_key(alert: dict[str, Any]) -> str:
 SYSTEM_PROMPT = """\
 You are a financial-news analyst. You are given a batch of candidate news items \
 (headline, source, date, URL, and a short summary or body excerpt). Your job is \
-to identify items that report Donald Trump DIRECTLY mentioning a specific, \
-publicly traded company in a way that could matter to investors, and to emit a \
-structured alert for each qualifying mention.
+to find items where Donald Trump made a DIRECT, OPINIONATED statement about a \
+specific publicly traded company — and to emit a structured alert for each one.
 
-QUALIFYING mention (emit an alert):
-- Trump names a specific publicly traded company or its stock ticker, OR
-- Trump names a CEO of a public company in a way that could affect that company, OR
-- Trump announces a policy that clearly and materially affects a NAMED public company.
+PRIORITIZE endorsement-type statements. These are the point of this monitor:
+- Trump PRAISING or TOUTING a company ("X is great", "X is doing an amazing job"),
+- Trump telling people to BUY or use a company's product/stock ("go buy X"),
+- Trump CREDITING a company or its CEO, or claiming credit for its success,
+- Trump CRITICIZING / attacking a specific public company (negative endorsement —
+  still emit it; set tone "negative").
+Also qualifying (lower emphasis): a policy/deal announcement that clearly and \
+materially affects a NAMED public company.
 
 DO NOT emit an alert for:
-- general political commentary or campaign rhetoric with no identifiable company,
-- broad economic comments with no specific company,
-- a company that is privately held (set ticker to null and lower confidence if unsure).
+- a company merely mentioned in passing with no opinion or market relevance,
+- general political/economic commentary with no specific named company,
+- campaign rhetoric with no identifiable company,
+- a privately held company (set ticker null and lower confidence if unsure).
+
+Favor statements made by Trump himself in a SPEECH, RALLY, INTERVIEW, press \
+conference, or on TRUTH SOCIAL / social media. Use the source_type field to say which.
 
 For each qualifying item produce one alert object:
 - company: the company name.
 - ticker: the stock ticker if you are confident; otherwise null.
-- exact_quote: a direct quotation of Trump ONLY if a quotation actually appears in \
-the provided text. If no direct quote is present, set this to null. Never invent or \
-paraphrase a quote into this field.
+- statement_type: one of "endorsement" (praise/buy/credit), "criticism" (attack), \
+"policy" (deal/policy affecting the company), or "mention" (named with mild opinion).
+- source_type: where Trump said it — one of "truth_social", "speech", "rally", \
+"interview", "press_conference", "social_media", "news_report", or "unknown".
+- exact_quote: Trump's own words, verbatim, ONLY if a direct quotation actually \
+appears in the provided text. If no quote is present, set this to null. NEVER invent, \
+paraphrase, or reconstruct a quote in this field.
+- key_info: REQUIRED, always non-empty. One or two sentences capturing what Trump \
+said about the company and why it matters — in your own words when no verbatim quote \
+is available, so every alert carries substance even without an exact quote.
 - tone: "positive", "negative", or "neutral" (Trump's tone toward the company).
-- priority: "HIGH" (a specific company/ticker is named), "MEDIUM" (an industry/policy \
-that clearly affects a named company), or "LOW" (general economic comment that still \
-names a company in passing).
-- confidence: integer 0-100 — your confidence that this is a real, market-relevant, \
-directly-attributable Trump mention given the provided text.
-- why: one sentence on why it was mentioned.
+- priority: "HIGH" (a clear endorsement/criticism naming a specific company or ticker), \
+"MEDIUM" (a policy/deal affecting a named company), or "LOW" (mild/passing opinion).
+- confidence: integer 0-100 — confidence this is a real, directly-attributable, \
+market-relevant Trump statement given the provided text.
+- why: one sentence on why it was said / the context.
 - market_impact: one sentence on the likely market impact.
 - beneficiaries: list of tickers that may benefit (may be empty).
 - harmed: list of tickers that may be hurt (may be empty).
@@ -292,7 +308,8 @@ directly-attributable Trump mention given the provided text.
 
 Strict rules:
 - Use ONLY facts present in the provided text. Do not invent quotes, prices, deals, or events.
-- If several items describe the SAME underlying mention, emit ONE alert and cite the best source.
+- exact_quote must be verbatim or null; key_info must always be filled in.
+- If several items describe the SAME underlying statement, emit ONE alert and cite the best source.
 - If nothing in the batch qualifies, return an empty alerts list.
 - This is informational analysis, not financial advice.
 
@@ -311,7 +328,13 @@ ALERT_SCHEMA: dict[str, Any] = {
                 "properties": {
                     "company": {"type": "string"},
                     "ticker": {"type": ["string", "null"]},
+                    "statement_type": {"type": "string", "enum": [
+                        "endorsement", "criticism", "policy", "mention"]},
+                    "source_type": {"type": "string", "enum": [
+                        "truth_social", "speech", "rally", "interview",
+                        "press_conference", "social_media", "news_report", "unknown"]},
                     "exact_quote": {"type": ["string", "null"]},
+                    "key_info": {"type": "string"},
                     "tone": {"type": "string", "enum": ["positive", "negative", "neutral"]},
                     "priority": {"type": "string", "enum": ["HIGH", "MEDIUM", "LOW"]},
                     "confidence": {"type": "integer"},
@@ -326,7 +349,8 @@ ALERT_SCHEMA: dict[str, Any] = {
                     "date": {"type": "string"},
                 },
                 "required": [
-                    "company", "ticker", "exact_quote", "tone", "priority",
+                    "company", "ticker", "statement_type", "source_type",
+                    "exact_quote", "key_info", "tone", "priority",
                     "confidence", "why", "market_impact", "beneficiaries", "harmed",
                     "material", "already_priced_in", "source_url", "source_name", "date",
                 ],
@@ -445,7 +469,11 @@ def analyze_heuristic(items: list[dict[str, Any]], cfg: dict[str, Any]) -> list[
 
     Lower quality than the LLM path — it can't extract exact quotes or judge
     tone/materiality reliably — so confidence is capped and quotes are omitted.
+    It uses endorsement keywords to guess statement_type and lift confidence.
     """
+    endorse_kw = ("prais", "tout", "great", "amazing", "endors", "go buy",
+                  "buy a", "incredible", "best", "fantastic", "loves", "credit")
+    crit_kw = ("attack", "slam", "blast", "criticiz", "criticis", "rip ", "bad job", "terrible")
     watchlist: dict[str, str] = cfg.get("watchlist", {})
     alerts: list[dict[str, Any]] = []
     for it in items:
@@ -456,13 +484,26 @@ def analyze_heuristic(items: list[dict[str, Any]], cfg: dict[str, Any]) -> list[
         for name, ticker in watchlist.items():
             if re.search(rf"\b{re.escape(name.lower())}\b", low):
                 pub = it.get("published")
+                is_endorse = any(k in low for k in endorse_kw)
+                is_crit = any(k in low for k in crit_kw)
+                if is_endorse:
+                    stype, tone, conf = "endorsement", "positive", 55
+                elif is_crit:
+                    stype, tone, conf = "criticism", "negative", 55
+                else:
+                    stype, tone, conf = "mention", "neutral", 45
+                src_type = "truth_social" if "truth social" in low else "news_report"
                 alerts.append({
                     "company": name,
                     "ticker": ticker,
+                    "statement_type": stype,
+                    "source_type": src_type,
                     "exact_quote": None,  # not reliably extractable without the LLM
-                    "tone": "neutral",
+                    "key_info": (it.get("title") or "").strip()
+                                or "Trump referenced this company; see source.",
+                    "tone": tone,
                     "priority": "HIGH",
-                    "confidence": 45,
+                    "confidence": conf,
                     "why": "Heuristic keyword match (Trump + company) in headline/summary.",
                     "market_impact": "Review the source; heuristic mode does not assess impact.",
                     "beneficiaries": [],
@@ -515,6 +556,24 @@ def enrich_prices(alerts: list[dict[str, Any]]) -> None:
 
 PRIORITY_EMOJI = {"HIGH": "🔴", "MEDIUM": "🟡", "LOW": "🟢"}
 
+STATEMENT_LABEL = {
+    "endorsement": "👍 ENDORSEMENT",
+    "criticism": "👎 CRITICISM",
+    "policy": "📜 POLICY",
+    "mention": "💬 MENTION",
+}
+
+SOURCE_LABEL = {
+    "truth_social": "Truth Social",
+    "speech": "Speech",
+    "rally": "Rally",
+    "interview": "Interview",
+    "press_conference": "Press conference",
+    "social_media": "Social media",
+    "news_report": "News report",
+    "unknown": "Unknown source",
+}
+
 DISCLAIMER = (
     "> **Disclaimer:** Auto-generated, informational only — **not financial advice.** "
     "Quotes are emitted only when present in the cited source; verify independently."
@@ -525,23 +584,36 @@ def render_alert(a: dict[str, Any]) -> str:
     pri = a.get("priority", "LOW")
     emoji = PRIORITY_EMOJI.get(pri, "🟢")
     ticker = a.get("ticker") or "—"
+    stype = a.get("statement_type", "mention")
+    stype_label = STATEMENT_LABEL.get(stype, "💬 MENTION")
+    where = SOURCE_LABEL.get(a.get("source_type", "unknown"), "Unknown source")
     quote = a.get("exact_quote")
-    quote_line = f"> \"{quote}\"" if quote else "> _(no direct quote captured from source)_"
+    key_info = (a.get("key_info") or "").strip()
+    # Always show substance: verbatim quote when present, else the key info.
+    if quote:
+        said_block = ["**What Trump said (quote):**", f"> \"{quote}\""]
+        if key_info:
+            said_block += ["", f"**Key info:** {key_info}"]
+    else:
+        said_block = [
+            "**What Trump said (key info — no verbatim quote in source):**",
+            f"> {key_info or '(see source)'}",
+        ]
     benef = ", ".join(a.get("beneficiaries") or []) or "—"
     harmed = ", ".join(a.get("harmed") or []) or "—"
     price = f" · **Live:** {a['price_note']}" if a.get("price_note") else ""
     src = a.get("source_name") or "source"
     return "\n".join([
-        f"### {emoji} {pri} — {a.get('company', 'Unknown')} ({ticker})",
+        f"### {emoji} {pri} · {stype_label} — {a.get('company', 'Unknown')} ({ticker})",
         "",
         f"🚨 **STOCK MENTION ALERT**",
         "",
         f"- **Date:** {a.get('date', 'unknown')}",
+        f"- **Where:** {where}",
         f"- **Source:** [{src}]({a.get('source_url', '')})",
         f"- **Ticker:** {ticker}{price}",
         "",
-        "**Exact Quote:**",
-        quote_line,
+        *said_block,
         "",
         f"**Context:** {a.get('why', '')} _Tone:_ {a.get('tone', 'neutral')}. "
         f"_Market impact:_ {a.get('market_impact', '')}",
@@ -567,9 +639,11 @@ def write_report(alerts: list[dict[str, Any]], out_dir: str, run_dt: dt.datetime
         blocks.append(f"# 🚨 Trump Stock-Mention Alerts — {run_dt.date().isoformat()} (automated)\n")
         blocks.append(DISCLAIMER + "\n")
     blocks.append(f"## Sweep at {stamp} — {len(alerts)} new alert(s)\n")
-    # HIGH first, then by confidence.
+    # Endorsements/criticism first (direct statements), then priority, then confidence.
+    stype_rank = {"endorsement": 0, "criticism": 0, "policy": 1, "mention": 2}
     order = {"HIGH": 0, "MEDIUM": 1, "LOW": 2}
-    for a in sorted(alerts, key=lambda x: (order.get(x.get("priority", "LOW"), 3),
+    for a in sorted(alerts, key=lambda x: (stype_rank.get(x.get("statement_type", "mention"), 3),
+                                           order.get(x.get("priority", "LOW"), 3),
                                            -int(x.get("confidence", 0)))):
         blocks.append(render_alert(a))
         blocks.append("")
