@@ -584,6 +584,25 @@ DISCLAIMER = (
 )
 
 
+def _signal_for(a: dict[str, Any]) -> str:
+    """Directional sentiment signal for an alert (NOT financial advice).
+
+    Delegates to notify.signal_for so the logic lives in one place; falls back
+    to an equivalent local mapping if notify can't be imported.
+    """
+    try:
+        import notify
+        return notify.signal_for(a)
+    except Exception:
+        stype = (a.get("statement_type") or "").lower()
+        tone = (a.get("tone") or "").lower()
+        if stype == "endorsement" or tone == "positive":
+            return "🟢 BUY-side signal (bullish lean)"
+        if stype == "criticism" or tone == "negative":
+            return "🔴 SELL-side signal (bearish lean)"
+        return "⚪ Neutral signal"
+
+
 def render_alert(a: dict[str, Any]) -> str:
     pri = a.get("priority", "LOW")
     emoji = PRIORITY_EMOJI.get(pri, "🟢")
@@ -607,6 +626,7 @@ def render_alert(a: dict[str, Any]) -> str:
     harmed = ", ".join(a.get("harmed") or []) or "—"
     price = f" · **Live:** {a['price_note']}" if a.get("price_note") else ""
     src = a.get("source_name") or "source"
+    signal = _signal_for(a)
     return "\n".join([
         f"### {emoji} {pri} · {stype_label} — {a.get('company', 'Unknown')} ({ticker})",
         "",
@@ -618,6 +638,8 @@ def render_alert(a: dict[str, Any]) -> str:
         f"- **Ticker:** {ticker}{price}",
         "",
         *said_block,
+        "",
+        f"**Signal:** {signal} — _sentiment direction only, **not** a recommendation to trade._",
         "",
         f"**Context:** {a.get('why', '')} _Tone:_ {a.get('tone', 'neutral')}. "
         f"_Market impact:_ {a.get('market_impact', '')}",
