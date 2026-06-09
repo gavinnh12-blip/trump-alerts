@@ -148,8 +148,13 @@ python trump_monitor.py --lookback-days 3 --limit 60
 ```
 
 Config lives in [`monitor_config.json`](./monitor_config.json) (watchlist, queries,
-model, effort, batch size). Most knobs also accept env overrides (`MONITOR_MODEL`,
-`MONITOR_EFFORT`, `MONITOR_LOOKBACK_DAYS`, …).
+model, effort, batch size, `min_confidence`). Most knobs also accept env overrides
+(`MONITOR_MODEL`, `MONITOR_EFFORT`, `MONITOR_LOOKBACK_DAYS`, `MONITOR_MIN_CONFIDENCE`, …).
+
+**`min_confidence`** (default **70**) drops any alert scoring below it, before writing or
+notifying — this filters out low-quality noise. In free heuristic mode, endorsement/criticism
+headlines score 72 (kept) while plain passing mentions score 45 (dropped), so you only get
+the meaningful ones. Raise it (e.g. 85) to be stricter, lower it to see more.
 
 ### Customize the schedule
 

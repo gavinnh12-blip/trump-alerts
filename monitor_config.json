@@ -1,10 +1,13 @@
 {
   "queries": [
-    "Trump company stock",
-    "Trump \"Truth Social\" stock",
-    "Trump praises company shares",
+    "Trump praises company stock",
+    "Trump touts company shares",
+    "Trump \"Truth Social\" company stock",
+    "Trump endorses company",
+    "Trump \"go buy\" OR \"great company\" stock",
+    "Trump rally company shares",
     "Trump tariff company shares",
-    "Trump CEO comment stock"
+    "Trump CEO praise stock"
   ],
   "watchlist": {
     "Micron": "MU",
@@ -28,6 +31,7 @@
   "model": "claude-opus-4-8",
   "effort": null,
   "thinking": true,
+  "min_confidence": 70,
   "out_dir": "alerts",
   "seen_store": ".monitor_seen.json"
 }
