@@ -84,6 +84,7 @@ DEFAULT_CONFIG: dict[str, Any] = {
     "model": MODEL_DEFAULT,
     "effort": None,               # None -> API default ("high"); or low/medium/high/max
     "thinking": True,             # adaptive thinking on the analysis call
+    "min_confidence": 70,         # drop alerts below this score (0-100); cuts low-quality noise
     "out_dir": "alerts",
     "seen_store": ".monitor_seen.json",
 }
@@ -94,6 +95,7 @@ ENV_OVERRIDES = {
     "MONITOR_LOOKBACK_DAYS": ("lookback_days", int),
     "MONITOR_MAX_ITEMS": ("max_items", int),
     "MONITOR_BATCH_SIZE": ("batch_size", int),
+    "MONITOR_MIN_CONFIDENCE": ("min_confidence", int),
     "MONITOR_OUT_DIR": ("out_dir", str),
 }
 
@@ -486,10 +488,12 @@ def analyze_heuristic(items: list[dict[str, Any]], cfg: dict[str, Any]) -> list[
                 pub = it.get("published")
                 is_endorse = any(k in low for k in endorse_kw)
                 is_crit = any(k in low for k in crit_kw)
+                # Endorsement/criticism headlines clear the default 70 gate;
+                # plain mentions stay low so the confidence filter drops them.
                 if is_endorse:
-                    stype, tone, conf = "endorsement", "positive", 55
+                    stype, tone, conf = "endorsement", "positive", 72
                 elif is_crit:
-                    stype, tone, conf = "criticism", "negative", 55
+                    stype, tone, conf = "criticism", "negative", 72
                 else:
                     stype, tone, conf = "mention", "neutral", 45
                 src_type = "truth_social" if "truth social" in low else "news_report"
@@ -704,6 +708,15 @@ def run_sweep(cfg: dict[str, Any], dry_run: bool) -> int:
     else:
         print("[monitor] no ANTHROPIC_API_KEY -> heuristic candidate mode")
         alerts = analyze_heuristic(fresh, cfg)
+
+    # Confidence gate: drop low-scoring alerts to cut noise.
+    threshold = int(cfg.get("min_confidence", 0) or 0)
+    if threshold > 0:
+        kept = [a for a in alerts if int(a.get("confidence", 0) or 0) >= threshold]
+        dropped = len(alerts) - len(kept)
+        if dropped:
+            print(f"[monitor] dropped {dropped} alert(s) below confidence {threshold}")
+        alerts = kept
 
     # Dedupe alerts across runs.
     new_alerts = [a for a in alerts if alert_key(a) not in seen["alerts"]]
