@@ -64,6 +64,23 @@ def _post(url: str, data: bytes, headers: dict[str, str]) -> None:
         raise last
 
 
+def signal_for(a: dict[str, Any]) -> str:
+    """Map a statement to a directional sentiment signal (NOT financial advice).
+
+    Endorsement / positive tone -> bullish (buy-side lean);
+    criticism / negative tone   -> bearish (sell-side lean);
+    otherwise neutral. This reflects the naive "Trump effect" direction his
+    words imply — it is a sentiment signal, not a recommendation to trade.
+    """
+    stype = (a.get("statement_type") or "").lower()
+    tone = (a.get("tone") or "").lower()
+    if stype == "endorsement" or tone == "positive":
+        return "🟢 BUY-side signal (bullish lean)"
+    if stype == "criticism" or tone == "negative":
+        return "🔴 SELL-side signal (bearish lean)"
+    return "⚪ Neutral signal"
+
+
 def format_summary(alerts: list[dict[str, Any]], max_lines: int = 6) -> tuple[str, str]:
     """Return (title, body) — short enough for a phone push notification."""
     n = len(alerts)
@@ -86,6 +103,7 @@ def format_summary(alerts: list[dict[str, Any]], max_lines: int = 6) -> tuple[st
         price = f" · {a['price_note']}" if a.get("price_note") else ""
         when = f" · said {a['date']}" if a.get("date") else ""
         lines.append(f"{emoji} {tag} — {company} ({ticker}): {snippet} · conf {conf}{when}{price}")
+        lines.append(f"   {signal_for(a)} — not advice")
         url = a.get("source_url")
         if url:
             lines.append(f"   {url}")

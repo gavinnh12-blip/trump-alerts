@@ -115,6 +115,12 @@ was said, and **always carries substance**: Trump's verbatim quote when the sour
 one, otherwise a `key_info` summary of what he said and why it matters (quotes are never
 fabricated). Endorsements/criticism sort to the top.
 
+Each alert also carries a **directional signal**: 🟢 **BUY-side** (bullish lean) for
+endorsements / positive tone, 🔴 **SELL-side** (bearish lean) for criticism / negative tone,
+⚪ neutral otherwise. ⚠️ This is the *sentiment direction* Trump's words imply — **not** a
+recommendation to trade. Tone often doesn't predict the actual move (markets may shrug it
+off, reverse, or have already priced it in). Always verify and decide for yourself.
+
 ### Analysis engine (graceful degradation)
 
 - **With `ANTHROPIC_API_KEY` set** → Claude (`claude-opus-4-8` by default) evaluates each
