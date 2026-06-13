@@ -61,10 +61,17 @@ Each run is saved under [`alerts/`](./alerts/) as a dated Markdown file.
 
 [`trump_monitor.py`](./trump_monitor.py) runs the whole pipeline on a schedule:
 
-**fetch** candidate news (Google News RSS) → **drop already-seen** → **analyze**
-→ **enrich** with live quotes → **append** a dated alert file + regenerate
+**fetch** candidate news (Google News RSS) → **drop already-seen** → **drop stale**
+→ **analyze** → **enrich** with live quotes → **append** a dated alert file + regenerate
 [`alerts/INDEX.md`](./alerts/) + persist the dedupe store. It's idempotent per day
 and dedupes mentions across runs and sources, so most sweeps produce few or zero new alerts.
+
+**Freshness (two gates, so old news never alerts):**
+- `lookback_days` (default 2) — only consider articles *published* within N days. Items with
+  no parseable date are **dropped** (previously they slipped through and could be weeks old).
+- `max_age_days` (default 3) — drop any alert whose *statement date* (when Trump actually
+  spoke, which the AI resolves — not the article's publish date) is older than this. This
+  catches recently-published articles that merely rehash an old statement.
 
 ### Turn it on
 

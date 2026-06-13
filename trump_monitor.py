@@ -76,7 +76,8 @@ DEFAULT_CONFIG: dict[str, Any] = {
         "Pfizer": "PFE",
         "Trump Media": "DJT",
     },
-    "lookback_days": 2,           # only consider items published within N days
+    "lookback_days": 2,           # only consider items PUBLISHED within N days
+    "max_age_days": 3,            # drop alerts whose STATEMENT date is older than this
     "max_items": 50,              # cap candidate items per run (cost guard)
     "batch_size": 10,             # candidate items per analysis API call
     "fetch_article_body": False,  # best-effort full-text fetch (often paywalled)
@@ -93,6 +94,7 @@ ENV_OVERRIDES = {
     "MONITOR_MODEL": ("model", str),
     "MONITOR_EFFORT": ("effort", str),
     "MONITOR_LOOKBACK_DAYS": ("lookback_days", int),
+    "MONITOR_MAX_AGE_DAYS": ("max_age_days", int),
     "MONITOR_MAX_ITEMS": ("max_items", int),
     "MONITOR_BATCH_SIZE": ("batch_size", int),
     "MONITOR_MIN_CONFIDENCE": ("min_confidence", int),
@@ -206,17 +208,29 @@ def fetch_candidates(cfg: dict[str, Any]) -> list[dict[str, Any]]:
 
 
 def filter_candidates(
-    items: list[dict[str, Any]], seen: set[str], lookback_days: int, limit: int
+    items: list[dict[str, Any]], seen: set[str], lookback_days: int, limit: int,
+    drop_undated: bool = True,
 ) -> list[dict[str, Any]]:
     cutoff = dt.datetime.utcnow() - dt.timedelta(days=lookback_days)
     fresh: list[dict[str, Any]] = []
+    dropped_old = dropped_undated = 0
     for it in items:
         if it["id"] in seen:
             continue
         pub = it.get("published")
-        if pub is not None and pub < cutoff:
+        if pub is None:
+            # No parseable date -> we can't confirm it's recent. Default: drop,
+            # so stale/undated items never slip through as "fresh".
+            if drop_undated:
+                dropped_undated += 1
+                continue
+        elif pub < cutoff:
+            dropped_old += 1
             continue
         fresh.append(it)
+    if dropped_old or dropped_undated:
+        print(f"[monitor] freshness filter: dropped {dropped_old} old + "
+              f"{dropped_undated} undated item(s) (window {lookback_days}d)")
     # Newest first when we have dates; cap to the cost guard.
     fresh.sort(key=lambda i: i.get("published") or dt.datetime.min, reverse=True)
     return fresh[:limit]
@@ -252,6 +266,22 @@ def alert_key(alert: dict[str, Any]) -> str:
     quote = (alert.get("exact_quote") or alert.get("why") or "").strip().lower()[:120]
     date = (alert.get("date") or "").strip()
     return hashlib.sha1(f"{company}|{quote}|{date}".encode()).hexdigest()
+
+
+def _alert_is_fresh(alert: dict[str, Any], max_age_days: int) -> bool:
+    """True if the alert's statement date is within max_age_days of today.
+
+    An undated or unparseable date is treated as NOT fresh — we'd rather drop an
+    ambiguous alert than ping stale news. Accepts 'YYYY-MM-DD' (optionally with a
+    trailing time).
+    """
+    raw = (alert.get("date") or "").strip()[:10]
+    try:
+        d = dt.datetime.strptime(raw, "%Y-%m-%d").date()
+    except ValueError:
+        return False
+    age = (dt.date.today() - d).days
+    return 0 <= age <= max_age_days  # future-dated (parse error) also dropped
 
 
 # --------------------------------------------------------------------------- #
@@ -306,11 +336,20 @@ market-relevant Trump statement given the provided text.
 - harmed: list of tickers that may be hurt (may be empty).
 - material: boolean — is this likely material to investors?
 - already_priced_in: short phrase on whether the market has likely already priced it in.
-- source_url, source_name, date: copied from the provided item.
+- source_url, source_name: copied from the provided item.
+- date: the date (YYYY-MM-DD) when TRUMP ACTUALLY MADE THE STATEMENT, not the \
+article's publish date. If the text says when he said it (e.g. "on Monday", "last \
+week", "May 22"), resolve it to a real date using the item's date as reference. If \
+the statement clearly describes OLD news (Trump said it more than a few days before \
+the article date), still report the true statement date so stale items can be filtered.
 
 Strict rules:
 - Use ONLY facts present in the provided text. Do not invent quotes, prices, deals, or events.
 - exact_quote must be verbatim or null; key_info must always be filled in.
+- date must be the day Trump SPOKE, resolved to YYYY-MM-DD — not the article date.
+- RECENCY: only emit alerts for statements made recently. If an item is merely \
+re-reporting, recapping, or analyzing a statement Trump made weeks or months ago, \
+do NOT emit an alert for it (set the batch to skip it).
 - If several items describe the SAME underlying statement, emit ONE alert and cite the best source.
 - If nothing in the batch qualifies, return an empty alerts list.
 - This is informational analysis, not financial advice.
@@ -738,6 +777,16 @@ def run_sweep(cfg: dict[str, Any], dry_run: bool) -> int:
         dropped = len(alerts) - len(kept)
         if dropped:
             print(f"[monitor] dropped {dropped} alert(s) below confidence {threshold}")
+        alerts = kept
+
+    # Freshness gate: drop alerts whose statement date is older than max_age_days.
+    # Catches recently-published articles that merely rehash an old statement.
+    max_age = int(cfg.get("max_age_days", 0) or 0)
+    if max_age > 0:
+        kept = [a for a in alerts if _alert_is_fresh(a, max_age)]
+        dropped = len(alerts) - len(kept)
+        if dropped:
+            print(f"[monitor] dropped {dropped} alert(s) older than {max_age}d (by statement date)")
         alerts = kept
 
     # Dedupe alerts across runs.

@@ -24,6 +24,7 @@
     "Trump Media": "DJT"
   },
   "lookback_days": 2,
+  "max_age_days": 3,
   "max_items": 50,
   "batch_size": 10,
   "fetch_article_body": false,
